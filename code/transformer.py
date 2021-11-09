@@ -40,24 +40,23 @@ def compute_spu_bounds(l, u, p_l):
 
     return (lb_slope, lb_intercept), (ub_slope, ub_intercept)
 
-
 #%%
-l = -5
-u = 5
-x = np.linspace(l, u, 100)
-f = np.vectorize(spu)(x)
-p_l = 1
+if __name__ == "__main__":
 
-(lb_slope, lb_intercept), (ub_slope, ub_intercept) = compute_spu_bounds(l,u, p_l)
+    l = -5
+    u = 5
+    x = np.linspace(l, u, 100)
+    f = np.vectorize(spu)(x)
+    p_l = 1
 
-lb = lb_slope*x + lb_intercept
-ub = ub_slope*x + ub_intercept
+    (lb_slope, lb_intercept), (ub_slope, ub_intercept) = compute_spu_bounds(l,u, p_l)
 
-plt.figure()
-plt.plot(x, f)
-plt.plot(x, lb)
-plt.plot(x, ub)
-plt.show()
+    lb = lb_slope*x + lb_intercept
+    ub = ub_slope*x + ub_intercept
 
+    plt.figure()
+    plt.plot(x, f)
+    plt.plot(x, lb)
+    plt.plot(x, ub)
+    plt.show()
 
-# %%
