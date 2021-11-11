@@ -1,19 +1,20 @@
 #%%
 import numpy as np
 import matplotlib.pyplot as plt
+from typing import Tuple
 
-def spu(x: float):
+def spu(x: float) -> float:
     return np.square(x) - 0.5 if x >= 0 else np.exp(-x)/(np.exp(-x) + 1) - 1
 
-def dx_spu(x: float):
+def dx_spu(x: float) -> float:
     return 2*x if x >= 0 else -np.exp(x)/np.square(np.exp(x) + 1)
 
-def get_line_from_two_points(x1: float, y1: float, x2: float, y2: float):
+def get_line_from_two_points(x1: float, y1: float, x2: float, y2: float) -> Tuple[float, float]:
     slope = (y2 - y1)/(x2 - x1)
     intercept = y1 + (-x1)*slope
     return (slope, intercept)
 
-def compute_spu_bounds(l: float, u: float, p_l: float):
+def compute_spu_bounds(l: float, u: float, p_l: float) -> Tuple[Tuple[float, float],Tuple[float, float]]:
     ''' computes linear bounds based on linearization point p_l.
      p_l should be chosen by some heuristic
         - minimize area
@@ -41,7 +42,7 @@ def compute_spu_bounds(l: float, u: float, p_l: float):
     return (lb_slope, lb_intercept), (ub_slope, ub_intercept)
 
 
-def compute_linear_bounds(l: np.array, u: np.array, w: np.array):
+def compute_linear_bounds(l: np.array, u: np.array, w: np.array) -> Tuple[float, float]:
     '''Computes bounds for 1-D output of linear layer, i.e.
         lb <= w^T*x <= ub for l <= x <= u 
     '''
@@ -111,7 +112,3 @@ if __name__ == "__main__":
     ax.plot_surface(X0, X1, F)
     ax.plot_surface(X0, X1, UB)
     plt.show()
-    
-
-
-# %%
