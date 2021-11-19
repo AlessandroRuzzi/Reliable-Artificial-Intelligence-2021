@@ -19,8 +19,10 @@ def compute_spu_bounds(l: float, u: float, p_l: float) -> Tuple[Tuple[float, flo
      p_l should be chosen by some heuristic
         - minimize area
         - input at original image
+        - minimal tangent slope
         - some other idea?'''
-    if l <= 0 and u > 0:
+    p_l = np.clip(p_l, a_min=l, a_max=u)
+    if u > 0:
         # ub is fixed
         (ub_slope, ub_intercept) = get_line_from_two_points(l, spu(l), u, spu(u))
 
@@ -30,11 +32,9 @@ def compute_spu_bounds(l: float, u: float, p_l: float) -> Tuple[Tuple[float, flo
             lb_intercept = spu(p_l) + (-p_l)*lb_slope
         else:
             # lb is chosen as tight for x<0 
-            assert(l<0)
             (lb_slope, lb_intercept) = get_line_from_two_points(l, spu(l), 0, spu(0))
     elif u <= 0:
         # now ub based on tangent and lb fixed
-        assert(p_l<=0)
         (lb_slope, lb_intercept) = get_line_from_two_points(l, spu(l), u, spu(u))
         ub_slope = dx_spu(p_l)
         ub_intercept = spu(p_l) + (-p_l)*ub_slope
@@ -61,11 +61,11 @@ def compute_linear_bounds(l: np.array, u: np.array, w: np.array) -> Tuple[float,
 if __name__ == "__main__":
 
     # bounds for single spu unit
-    l = -5
-    u = 5
+    l = -2
+    u = 2
     x = np.linspace(l, u, 100)
     f = np.vectorize(spu)(x)
-    p_l = 1
+    p_l = -1
 
     (lb_slope, lb_intercept), (ub_slope, ub_intercept) = compute_spu_bounds(l,u, p_l)
 
