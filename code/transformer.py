@@ -1,114 +1,93 @@
-#%%
-import numpy as np
-import matplotlib.pyplot as plt
-from typing import Tuple
+import torch
+import torch.nn as nn
 
-def spu(x: float) -> float:
-    return np.square(x) - 0.5 if x >= 0 else np.exp(-x)/(np.exp(-x) + 1) - 1
+from networks import FullyConnected
+from networks import SPU
 
-def dx_spu(x: float) -> float:
-    return 2*x if x >= 0 else -np.exp(x)/np.square(np.exp(x) + 1)
+from utils import get_line_from_two_points, spu, dx_spu
 
-def get_line_from_two_points(x1: float, y1: float, x2: float, y2: float) -> Tuple[float, float]:
-    slope = (y2 - y1)/(x2 - x1)
-    intercept = y1 + (-x1)*slope
-    return (slope, intercept)
 
-def compute_spu_bounds(l: float, u: float, p_l: float) -> Tuple[Tuple[float, float],Tuple[float, float]]:
-    ''' computes linear bounds based on linearization point p_l.
-     p_l should be chosen by some heuristic
-        - minimize area
-        - input at original image
-        - minimal tangent slope
-        - some other idea?'''
-    p_l = np.clip(p_l, a_min=l, a_max=u)
-    if u > 0:
-        # ub is fixed
-        (ub_slope, ub_intercept) = get_line_from_two_points(l, spu(l), u, spu(u))
+class spuLayerTransformer(nn.Module):
+    def __init__(self, layer):
+        super(spuLayerTransformer, self).__init__()
 
-        if p_l >= 0:
-            # lb is chosen as tangent at p_l
-            lb_slope = dx_spu(p_l)
-            lb_intercept = spu(p_l) + (-p_l)*lb_slope
+    def forward_pass(self, x, l_in, u_in, heuristic: str = 'x'):
+        '''
+        l, u, x: (d_in,1)
+        '''
+        dim = x.shape[0]
+        x_out = SPU(x)
+        if heuristic == 'x':
+            # choose p_l as x
+            p_l = x
         else:
-            # lb is chosen as tight for x<0 
-            (lb_slope, lb_intercept) = get_line_from_two_points(l, spu(l), 0, spu(0))
-    elif u <= 0:
-        # now ub based on tangent and lb fixed
-        (lb_slope, lb_intercept) = get_line_from_two_points(l, spu(l), u, spu(u))
-        ub_slope = dx_spu(p_l)
-        ub_intercept = spu(p_l) + (-p_l)*ub_slope
+            pass
 
-    return (lb_slope, lb_intercept), (ub_slope, ub_intercept)
+        l_out, u_out = torch.zeros(x.shape)
+        for i in range(dim):
+            (lb_slope, lb_intercept), (ub_slope, ub_intercept) = self._1D_bounds(l_in[i], u_in[i], p_l[i])
+            l_out[i] = lb_intercept + (lb_slope > 0)*(l_in[i] * (-lb_slope)) + (lb_slope <= 0)*(u_in[i] * lb_slope)
+            u_out[i] = ub_intercept + (ub_slope > 0)*(u_in[i] * ub_slope) + (ub_slope <= 0)*(l_in[i] * (-lb_slope))
+        
+        return x_out, l_out, u_out
+
+    @staticmethod
+    def _1D_bounds(l: float, u: float, p_l: float):
+        p_l = torch.clamp(p_l, a_min=l, a_max=u)
+        if u > 0:
+            # ub is fixed
+            (ub_slope, ub_intercept) = get_line_from_two_points(l, spu(l), u, spu(u))
+
+            if p_l >= 0:
+                # lb is chosen as tangent at p_l
+                lb_slope = dx_spu(p_l)
+                lb_intercept = spu(p_l) + (-p_l)*lb_slope
+            else:
+                # lb is chosen as tight for x<0 
+                (lb_slope, lb_intercept) = get_line_from_two_points(l, spu(l), 0, spu(0))
+        elif u <= 0:
+            # now ub based on tangent and lb fixed
+            (lb_slope, lb_intercept) = get_line_from_two_points(l, spu(l), u, spu(u))
+            ub_slope = dx_spu(p_l)
+            ub_intercept = spu(p_l) + (-p_l)*ub_slope
+
+        return (lb_slope, lb_intercept), (ub_slope, ub_intercept)
 
 
-def compute_linear_bounds(l: np.array, u: np.array, w: np.array) -> Tuple[float, float]:
-    '''Computes bounds for 1-D output of linear layer, i.e.
-        lb <= w^T*x <= ub for l <= x <= u 
-    '''
-    l_in = l.reshape(-1,1)
-    u_in = u.reshape(-1,1)
-    weights = w.reshape(-1,1)
-    w_plus = weights.clip(min=0)
-    w_minus = weights.clip(max=0)
-    ub = np.matmul(np.transpose(w_plus), u_in) + np.matmul(np.transpose(w_minus), l_in)
-    lb = np.matmul(np.transpose(w_plus), l_in) + np.matmul(np.transpose(w_minus), u_in)
-    return (lb, ub)
+class linearLayerTransformer(nn.Module):
+    def __init__(self, layer: nn.Linear):
+        super(linearLayerTransformer, self).__init__()
+        self.weights = layer.weight
+        self.bias = layer.bias
+        self.d_in = self.weights.shape[1]
+        self.d_out = self.weights.shape[0]
+
+    def forward_pass(self, x, l_in, u_in):
+        '''
+        l, u, x: (d_in,1)
+        '''
+        w_p = torch.clamp(self.weights, min=0)
+        w_m = torch.clamp(self.weights, max=0)
+        u_out = torch.multiply(w_p, u_in) + torch.multiply(w_m, l_in) + self.bias
+        l_out = torch.multiply(w_p, l_in) + torch.multiply(w_m, u_in) + self.bias
+        x_out = torch.multiply(self.weights, x) + self.bias
+        return x_out, l_out, u_out
 
 
+class NetworkTransformer(nn.Module):
 
-#%%
-if __name__ == "__main__":
+    def __init__(self, net: FullyConnected):
+        super(NetworkTransformer, self).__init__()
+        
+        self.net = net
+        self.layers = []
+        # TODO: Instantiate abstract layers
+        
 
-    # bounds for single spu unit
-    l = -2
-    u = 2
-    x = np.linspace(l, u, 100)
-    f = np.vectorize(spu)(x)
-    p_l = -1
+    
+    def forward_pass(self, x, l, u):
+        # TODO: apply normalization and flatten
+        for layer in self.layers:
+            x, l, u = layer.forward_pass(x, l, u)
 
-    (lb_slope, lb_intercept), (ub_slope, ub_intercept) = compute_spu_bounds(l,u, p_l)
-
-    lb = lb_slope*x + lb_intercept
-    ub = ub_slope*x + ub_intercept
-
-    plt.figure(1)
-    plt.plot(x, f)
-    plt.plot(x, lb)
-    plt.plot(x, ub)
-    plt.show()
-#%%  bounds for linear layer + spu unit
-    # input bounds
-    l = np.array([-1, -1])
-    u = np.array([1, 1])
-    # weights for linear layer
-    w = np.array([1, -2]).reshape(2,1)
-    # bounds for linear output
-    l_1, u_1 = compute_linear_bounds(l, u, w)
-    # bounds for spu unit
-    (lb_slope, lb_intercept), (ub_slope, ub_intercept) = compute_spu_bounds(l_1,u_1, p_l=0)
-
-    #plot results
-    # linear + spu output
-    def f(x1, x2):
-        x_in = np.matmul(np.transpose(w), np.array([x1, x2]).reshape(2,1))
-        return spu(x_in)
-    def ub(x1,x2):
-        x_in = np.matmul(np.transpose(w), np.array([x1, x2]).reshape(2,1))
-        return ub_intercept + ub_slope*x_in 
-    def lb(x1,x2):
-        x_in = np.matmul(np.transpose(w), np.array([x1, x2]).reshape(2,1))
-        return lb_intercept + lb_slope*x_in 
-
-    x0 = np.linspace(l[0], u[0], 25)
-    x1 = np.linspace(l[1], u[1], 25)
-    X0,X1 = np.meshgrid(x0, x1)
-    F = np.vectorize(f)(X0, X1)
-    LB = np.vectorize(lb)(X0, X1)
-    UB = np.vectorize(ub)(X0, X1)
-
-    fig, ax = plt.subplots(subplot_kw={"projection": "3d"})
-    ax.plot_surface(X0, X1, LB)
-    ax.plot_surface(X0, X1, F)
-    ax.plot_surface(X0, X1, UB)
-    plt.show()
+        return x, l, u
