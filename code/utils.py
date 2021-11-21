@@ -1,7 +1,7 @@
-#%%
 import numpy as np
 import matplotlib.pyplot as plt # TODO: remove dependencies which aren't allowed
 from typing import Tuple
+import torch
 
 def spu(x: float) -> float:
     return np.square(x) - 0.5 if x >= 0 else np.exp(-x)/(np.exp(-x) + 1) - 1
@@ -56,8 +56,14 @@ def compute_linear_bounds(l: np.array, u: np.array, w: np.array) -> Tuple[float,
     return (lb, ub)
 
 
+def get_input_bounds(input, eps, l=0, u=1):
+    lb = torch.clamp(input - eps, min = l)
+    ub = torch.clamp(input + eps, max = u)
+    return lb, ub
 
-#%%
+
+
+#%
 if __name__ == "__main__":
 
     # bounds for single spu unit
@@ -77,7 +83,7 @@ if __name__ == "__main__":
     plt.plot(x, lb)
     plt.plot(x, ub)
     plt.show()
-#%%  bounds for linear layer + spu unit
+#%  bounds for linear layer + spu unit
     # input bounds
     l = np.array([-1, -1])
     u = np.array([1, 1])
@@ -112,3 +118,4 @@ if __name__ == "__main__":
     ax.plot_surface(X0, X1, F)
     ax.plot_surface(X0, X1, UB)
     plt.show()
+    
