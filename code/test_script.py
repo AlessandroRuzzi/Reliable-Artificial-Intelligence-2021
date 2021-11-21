@@ -17,7 +17,7 @@ DEVICE = 'cpu'
 INPUT_SIZE = 28
 
 net_name = 'net0_fc1'
-example = 'example_img0_0.01800'
+example = 'example_img1_0.05000'
 filename = '../test_cases/' + net_name +'/' + example + '.txt'
 with open(filename, 'r') as f:
         lines = [line[:-1] for line in f.readlines()]
@@ -48,6 +48,10 @@ span_x = torch.sum(ub_out1 - lb_out1).item()
 
 print('Span box: ' + str(span_box))
 print('Span x: ' + str(span_x))
+
+print(lb_out0[0,true_label])
+
+print(ub_out0[0,:])
 
 verified_box = sum((lb_out0[0,true_label] > ub_out0[0,:])).item()==9
 verified_x = sum((lb_out1[0,true_label] > ub_out1[0,:])).item()==9

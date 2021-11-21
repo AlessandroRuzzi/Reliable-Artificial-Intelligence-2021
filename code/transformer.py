@@ -22,7 +22,7 @@ class spuLayerTransformer(nn.Module):
         x_out = SPU().forward(x)
         if self.heuristic == 'x':
             # choose p_l as x
-            p_l = x
+            p_l = u_in - ((abs(l_in) + abs(u_in))/2)
         else:
             pass
 
