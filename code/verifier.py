@@ -1,13 +1,31 @@
 import argparse
 import torch
 from networks import FullyConnected
+from transformer import NetworkTransformer
+import time
 
 DEVICE = 'cpu'
 INPUT_SIZE = 28
 
+def get_input_bounds(input, eps, l=0, u=1):
+    lb = torch.clamp(input - eps, min = l)
+    ub = torch.clamp(input + eps, max = u)
+    return lb, ub
+
 
 def analyze(net, inputs, eps, true_label):
-    return 0
+
+    start = time.time()
+
+    lb, ub = get_input_bounds(inputs, eps)
+    x_out, lb_out, ub_out = net.forward_pass(inputs, lb, ub)
+
+    end = time.time()
+    print("Propagation done. Time : "+str(round(end-start,3)))
+
+    verified= sum((lb_out[0,true_label] > ub_out[0,:])).item()==9
+
+    return verified
 
 
 def main():
@@ -40,12 +58,14 @@ def main():
 
     net.load_state_dict(torch.load('../mnist_nets/%s.pt' % args.net, map_location=torch.device(DEVICE)))
 
+    abstract_net = NetworkTransformer(net, heuristic='x')
+
     inputs = torch.FloatTensor(pixel_values).view(1, 1, INPUT_SIZE, INPUT_SIZE).to(DEVICE)
     outs = net(inputs)
     pred_label = outs.max(dim=1)[1].item()
     assert pred_label == true_label
 
-    if analyze(net, inputs, eps, true_label):
+    if analyze(abstract_net, inputs, eps, true_label):
         print('verified')
     else:
         print('not verified')
