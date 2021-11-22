@@ -16,8 +16,8 @@ def get_input_bounds(input, eps, l=0, u=1):
 DEVICE = 'cpu'
 INPUT_SIZE = 28
 
-net_name = 'net0_fc1'
-example = 'example_img1_0.05000'
+net_name = 'net0_fc5'
+example = 'example_img0_0.02100'
 filename = '../test_cases/' + net_name +'/' + example + '.txt'
 with open(filename, 'r') as f:
         lines = [line[:-1] for line in f.readlines()]
@@ -28,6 +28,8 @@ with open(filename, 'r') as f:
 
 if net_name.endswith('fc1'):
     net = FullyConnected(DEVICE, INPUT_SIZE, [50, 10]).to(DEVICE)
+elif net_name.endswith('fc5'):
+        net = FullyConnected(DEVICE, INPUT_SIZE, [100, 100, 100, 100, 10]).to(DEVICE)
 
 net.load_state_dict(torch.load('../mnist_nets/' + net_name + '.pt', map_location=torch.device(DEVICE)))
 
@@ -40,10 +42,12 @@ lb, ub = get_input_bounds(inputs, eps)
 
 x_out0, lb_out0, ub_out0 = NetworkTransformer(net, heuristic='box').forward_pass(inputs, lb, ub)
 
-x_out1, lb_out1, ub_out1 = NetworkTransformer(net, heuristic='x').forward_pass(inputs, lb, ub)
+#x_out1, lb_out1, ub_out1 = NetworkTransformer(net, heuristic='x').forward_pass(inputs, lb, ub)
 
+verified_box = sum((lb_out0[0,true_label] > ub_out0[0,:])).item()==9
+print('Result box: ' + str(verified_box))
 #%%
-span_box = torch.sum(ub_out0 - lb_out0).item()
+'''span_box = torch.sum(ub_out0 - lb_out0).item()
 span_x = torch.sum(ub_out1 - lb_out1).item()
 
 print('Span box: ' + str(span_box))
@@ -59,4 +63,4 @@ verified_x = sum((lb_out1[0,true_label] > ub_out1[0,:])).item()==9
 print('Result box: ' + str(verified_box))
 print('Result x: ' + str(verified_x))
 
-# %%
+# %%'''

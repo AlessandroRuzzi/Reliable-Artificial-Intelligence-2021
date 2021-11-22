@@ -42,16 +42,17 @@ class spuLayerTransformer(nn.Module):
 
     @staticmethod
     def _1D_box_bounds(l: float, u: float):
+        assert(l<=u)
         if l >= 0:
-            l = spu(l)
-            u = spu(u)
+            l_out = spu(l)
+            u_out = spu(u)
         elif u<= 0:
-            l = spu(u)
-            u = spu(l)
+            l_out = spu(u)
+            u_out = spu(l)
         else:
-            u = spu(u)
-            l = -0.5
-        return l,u
+            u_out = spu(u)
+            l_out = -0.5
+        return l_out,u_out
 
     @staticmethod
     def _1D_bounds(l: float, u: float, p_l: float):

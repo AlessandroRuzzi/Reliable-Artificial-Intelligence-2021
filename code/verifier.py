@@ -21,9 +21,15 @@ def analyze(net, inputs, eps, true_label):
     x_out, lb_out, ub_out = net.forward_pass(inputs, lb, ub)
 
     end = time.time()
-    print("Propagation done. Time : "+str(round(end-start,3)))
+    print("Propagation done. Time : " + str(round(end-start,3)))
 
-    verified= sum((lb_out[0,true_label] > ub_out[0,:])).item()==9
+    lb_t = lb_out[0,true_label]
+    cc = 0
+    for k in range(10):
+        if k != true_label and lb_t > ub_out[0,k]:
+            cc +=1
+    verified = cc == 9
+    #verified= sum((lb_out[0,true_label] > ub_out[0,:])).item()==9
 
     return verified
 
@@ -58,7 +64,7 @@ def main():
 
     net.load_state_dict(torch.load('../mnist_nets/%s.pt' % args.net, map_location=torch.device(DEVICE)))
 
-    abstract_net = NetworkTransformer(net, heuristic='x')
+    abstract_net = NetworkTransformer(net, heuristic='box')
 
     inputs = torch.FloatTensor(pixel_values).view(1, 1, INPUT_SIZE, INPUT_SIZE).to(DEVICE)
     outs = net(inputs)

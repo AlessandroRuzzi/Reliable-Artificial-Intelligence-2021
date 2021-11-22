@@ -2,12 +2,14 @@ import numpy as np
 import matplotlib.pyplot as plt # TODO: remove dependencies which aren't allowed
 from typing import Tuple
 import torch
+from scipy.special import expit
 
 def spu(x: float) -> float:
-    return np.square(x) - 0.5 if x >= 0 else np.exp(-x)/(np.exp(-x) + 1) - 1
-
+    #return np.square(x) - 0.5 if x >= 0 else np.exp(-x)/(np.exp(-x) + 1) - 1
+    return np.square(x) - 0.5 if x >= 0 else expit(-x) - 1
 def dx_spu(x: float) -> float:
-    return 2*x if x >= 0 else -np.exp(x)/np.square(np.exp(x) + 1)
+    #return 2*x if x >= 0 else -np.exp(x)/np.square(np.exp(x) + 1)
+    return 2*x if x >= 0 else -expit(-x)*expit(x)
 
 def get_line_from_two_points(x1: float, y1: float, x2: float, y2: float) -> Tuple[float, float]:
     slope = (y2 - y1)/(x2 - x1)
