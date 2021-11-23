@@ -122,12 +122,12 @@ class linearLayerTransformer(nn.Module):
         x_out = torch.mm(self.weights, x.t()) + self.bias
         return x_out.t(), l_out.t(), u_out.t()
 
-class dummyLayer(EnumType):
+
+class dummyLayer:
     def __init__(self, dim: int):
         self.l_in = torch.zeros((dim,1))
         self.u_in = torch.zeros((dim,1))
         self.dim = dim
-
 
 
 class NetworkTransformer(nn.Module):
