@@ -1,24 +1,21 @@
 from numpy.lib.function_base import append
 import torch
+from torch._C import EnumType
 import torch.nn as nn
 import numpy as np
+from typing import List
 
 from networks import FullyConnected, Normalization
 from networks import SPU
+from verifier import INPUT_SIZE
 
-from utils import X0, get_line_from_two_points, spu, dx_spu
+from utils import get_line_from_two_points, spu, dx_spu
 
 
 class spuLayerTransformer(nn.Module):
-    def __init__(self, dim):
+    def __init__(self, dim: int):
         super(spuLayerTransformer, self).__init__()
         self.dim = dim
-        # TODO: Not very safe, should be -+ Inf
-        self.lb_slope = torch.zeros((1, dim))
-        self.lb_intercept = torch.zeros((1, dim))
-        self.ub_slope = torch.zeros((1, dim))
-        self.ub_intercept = torch.zeros((1, dim))
-
         self.lb_in = torch.zeros((dim,1))
         self.ub_in = torch.zeros((dim,1))
 
@@ -70,11 +67,11 @@ class spuLayerTransformer(nn.Module):
 
         # TODO: Is there a way to vectorize this in torch?
         for i in range(n):
-            slope_lb[i,0], intercept_lb[i,0], slope_ub[i,0], intercept_ub[i,0] = self._compute_linear_bounds_1D(l_in[i,0].item(), l_in[i,0].item(), p_l[i,0].item())
+            slope_lb[i,0], intercept_lb[i,0], slope_ub[i,0], intercept_ub[i,0] = self._compute_linear_bounds_1D(l_in[i,0].item(), u_in[i,0].item(), p_l[i,0].item())
             
-        return slope_lb, intercept_lb, slope_ub, intercept_ub
+        return torch.diag(slope_lb[:,0]), intercept_lb, torch.diag(slope_ub[:,0]), intercept_ub
 
-    def _compute_linear_bounds_1D(self, idx: int, l: float, u: float, p_l: float):
+    def _compute_linear_bounds_1D(self, l: float, u: float, p_l: float):
         #p_l = torch.clamp(p_l, min=l, max=u)
         p_l = np.clip(p_l, a_min=l, a_max=u)
         if u > 0:
@@ -125,84 +122,99 @@ class linearLayerTransformer(nn.Module):
         x_out = torch.mm(self.weights, x.t()) + self.bias
         return x_out.t(), l_out.t(), u_out.t()
 
+class dummyLayer(EnumType):
+    def __init__(self, dim: int):
+        self.l_in = torch.zeros((dim,1))
+        self.u_in = torch.zeros((dim,1))
+        self.dim = dim
+
+
 
 class NetworkTransformer(nn.Module):
 
-    def __init__(self, net: FullyConnected, layer_dim):
+    def __init__(self, net: FullyConnected, layer_dim: List[int], input_dim=INPUT_SIZE*INPUT_SIZE):
         super(NetworkTransformer, self).__init__()
         
         self.net = net
-        self.layers = [None]
-
-        for i, layer in enumerate(net.layers):
+        self.layers = [dummyLayer(input_dim)]
+        c = 0
+        for layer in net.layers:
             if isinstance(layer, Normalization) or isinstance(layer, nn.Flatten):
                 pass
             elif isinstance(layer, nn.Linear):
                 self.layers.append(linearLayerTransformer(layer.weight, layer.bias))
             elif isinstance(layer, SPU):
-                self.layers.append(spuLayerTransformer(layer, layer_dim[i]))
+                self.layers.append(spuLayerTransformer(layer_dim[c]))
+                c += 1
             else:
                 raise Exception("Layer type not recognized: " + str(type(layer)))
         
+        self.layers.append(dummyLayer(layer_dim[-1]))
+        self.n_layers = len(self.layers)
+
     def forward_pass(self, x, l, u):
 
         x = self._apply_initial_layers(x)  
         l = self._apply_initial_layers(l)  
         u = self._apply_initial_layers(u)  
-        self.input_lb = l
-        self.input_ub = u
-        self.input_x = x
-        for la in self.layers[1:]:
+        self.layers[0].l_in = l
+        self.layers[0].u_in = u
+        for la in self.layers[1:-1]:
             x, l, u = la.forward(x, l, u)
         return x, l, u
+
+    def backsub_pass(self, heuristic='midpoint'):
+        # for now one pass through whole network
+        self._backsubstitution(self.n_layers-1, 0, heuristic)
+        return self.layers[-1].l_in, self.layers[-1].u_in
 
     def _apply_initial_layers(self, x):
         x = self.net.layers[0].forward(x)
         x = self.net.layers[1].forward(x)  
         return x
 
-    def _backsubstitution(self, from_layer: int, to_layer: int, heuristic='x'):
+    def _backsubstitution(self, from_layer: int, to_layer: int, heuristic: str):
         '''
         compute new linear bounds for from_layer, by substituting linear bounds from previous layers 
         up until to_layer
         '''
+
+        layer0 = self.layers[from_layer]
         # TODO: Can start lyer be any layer or only spu?
-        if not isinstance(self.layers[from_layer], SPU):
-            raise Exception('Backsubstitution has to be strated from SPU layer.')
+        if not (isinstance(layer0, SPU) or (from_layer == self.n_layers-1)):
+            raise Exception('Backsubstitution has to be started from SPU or output layer.')
 
         if to_layer < 0:
             raise Exception('Backsubstitution beyond network input is not possible.')
 
-        
-        layer0 = self.layers[from_layer]
         dim0 = layer0.dim
         M_LB = torch.eye(dim0)
         B_LB = torch.zeros((dim0,1))
+        M_UB = torch.eye(dim0)
+        B_UB = torch.zeros((dim0,1))
 
-
-        for layer in reversed(self.layers[to_layer:from_layer]): 
+        for layer in reversed(self.layers[to_layer:from_layer]): #TODO: Inlcude operation of from_layer?
             if isinstance(layer, linearLayerTransformer):
                 w = layer.weights
                 b = layer.bias
-                M_LB = torch.mm(w, M_LB)
-                B_LB = B_LB + b
+                B_LB = B_LB + torch.mm(M_LB,b)
+                M_LB = torch.mm(M_LB, w)
+                B_UB = B_UB + torch.mm(M_UB,b)
+                M_UB = torch.mm(M_UB, w)
 
             elif isinstance(layer, spuLayerTransformer):
-                lb_slope, lb_intercept, ub_slope, ub_intercept = layer.compute_linear_bounds(layer.lb_in, layer.ub_in, heurisitc=heuristic)
+                lb_slope, lb_intercept, ub_slope, ub_intercept = layer.compute_linear_bounds(layer.lb_in, layer.ub_in, heuristic)
                 M_LB, B_LB = self._compute_spu_backsub_params(M_LB, B_LB, lb_slope, lb_intercept, ub_slope, ub_intercept)
                 M_UB, B_UB = self._compute_spu_backsub_params(M_UB, B_UB, ub_slope, ub_intercept, lb_slope, lb_intercept)
                 
         backsub_layer_lb = linearLayerTransformer(M_LB, B_LB)
         backsub_layer_ub = linearLayerTransformer(M_UB, B_UB)
 
-        if to_layer == 0: # backsub to input
-            l_in = self.input_lb
-            u_in = self.input_ub
-            x_dummy = self.x
-        else: # backsub to intermediate layer TODO: Only allow to be spu layer?
-            l_in = self.layers[to_layer].l_in
-            u_in = self.layers[to_layer].u_in
-            x_dummy = torch.zeros_like(l_in)
+        # TODO: Only allow to be spu layer?
+        # TODO: Pass ro_layer bounds as input?
+        l_in = self.layers[to_layer].l_in
+        u_in = self.layers[to_layer].u_in
+        x_dummy = torch.zeros_like(l_in)
 
         _, lb0, __ = backsub_layer_lb.forward(x_dummy, l_in, u_in)
         _, __, ub0 = backsub_layer_ub.forward(x_dummy, l_in, u_in)

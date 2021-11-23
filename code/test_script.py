@@ -18,7 +18,7 @@ INPUT_SIZE = 28
 
 net_name = 'net0_fc1'
 example = 'example_img0_0.01800'
-filename = '../test_cases/' + net_name +'/' + example + '.txt'
+filename = 'test_cases/' + net_name +'/' + example + '.txt'
 with open(filename, 'r') as f:
         lines = [line[:-1] for line in f.readlines()]
         true_label = int(lines[0])
@@ -27,9 +27,10 @@ with open(filename, 'r') as f:
 
 
 if net_name.endswith('fc1'):
-    net = FullyConnected(DEVICE, INPUT_SIZE, [50, 10]).to(DEVICE)
+    fc_layers = [50, 10]
+    net = FullyConnected(DEVICE, INPUT_SIZE, fc_layers).to(DEVICE)
 
-net.load_state_dict(torch.load('../mnist_nets/' + net_name + '.pt', map_location=torch.device(DEVICE)))
+net.load_state_dict(torch.load('mnist_nets/' + net_name + '.pt', map_location=torch.device(DEVICE)))
 
 inputs = torch.FloatTensor(pixel_values).view(1, 1, INPUT_SIZE, INPUT_SIZE).to(DEVICE)
 outs = net(inputs)
@@ -38,9 +39,12 @@ assert pred_label == true_label
 
 lb, ub = get_input_bounds(inputs, eps)
 
-x_out0, lb_out0, ub_out0 = NetworkTransformer(net, heuristic='box').forward_pass(inputs, lb, ub)
+nt = NetworkTransformer(net, fc_layers)
+x_out0, lb_out0, ub_out0 = nt.forward_pass(inputs, lb, ub)
 
-x_out1, lb_out1, ub_out1 = NetworkTransformer(net, heuristic='x').forward_pass(inputs, lb, ub)
+lb_out1, ub_out1 = nt.backsub_pass()
+
+
 
 #%%
 span_box = torch.sum(ub_out0 - lb_out0).item()
