@@ -1,3 +1,4 @@
+#%%
 import numpy as np
 import matplotlib.pyplot as plt # TODO: remove dependencies which aren't allowed
 from typing import Tuple
@@ -64,7 +65,7 @@ def get_input_bounds(input, eps, l=0, u=1):
 
 
 
-#%
+#%%
 if __name__ == "__main__":
 
     # bounds for single spu unit
@@ -72,13 +73,15 @@ if __name__ == "__main__":
     u = 2
     x = np.linspace(l, u, 100)
     f = np.vectorize(spu)(x)
-    p_l = 1
+    p_l = 0
 
     (lb_slope, lb_intercept), (ub_slope, ub_intercept) = compute_spu_bounds(l,u, p_l)
 
-    lb = lb_slope*x + lb_intercept
-    ub = ub_slope*x + ub_intercept
+    l_out = lb_intercept + (lb_slope > 0)*(l * lb_slope) + (lb_slope <= 0)*(u * lb_slope)
+    u_out = ub_intercept + (ub_slope > 0)*(u * ub_slope) + (ub_slope <= 0)*(l * ub_slope)
 
+    print(lb, ub)
+#%%
     plt.figure(1)
     plt.plot(x, f)
     plt.plot(x, lb)
@@ -120,3 +123,5 @@ if __name__ == "__main__":
     ax.plot_surface(X0, X1, UB)
     plt.show()
     
+
+# %%

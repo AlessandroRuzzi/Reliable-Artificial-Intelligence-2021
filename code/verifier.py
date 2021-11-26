@@ -1,6 +1,7 @@
 import argparse
 import torch
 from networks import FullyConnected
+import torch.nn as nn
 
 DEVICE = 'cpu'
 INPUT_SIZE = 28

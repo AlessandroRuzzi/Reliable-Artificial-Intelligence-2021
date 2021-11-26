@@ -11,6 +11,11 @@ from verifier import INPUT_SIZE
 
 from utils import get_line_from_two_points, spu, dx_spu
 
+class LinearDummy(nn.Module):
+    def __init__(self, weights, bias):
+        self.weight = weights
+        self.bias = bias
+
 
 class spuLayerTransformer(nn.Module):
     def __init__(self, dim: int):
@@ -31,7 +36,8 @@ class spuLayerTransformer(nn.Module):
         l_out = torch.zeros(x.shape)
         u_out = torch.zeros(x.shape)
         for i in range(self.dim):
-            l_out[0, i] , u_out[0, i]  = self._1D_box_bounds(l_in[0, i].item(), u_in[0, i].item())
+            #l_out[0, i] , u_out[0, i]  = self._1D_box_bounds(l_in[0, i].item(), u_in[0, i].item())
+            l_out[0, i] , u_out[0, i]  = self._compute_bounds_1D(l_in[0, i].item(), u_in[0, i].item(), 0.0)
         return x_out, l_out, u_out
 
 
@@ -58,10 +64,12 @@ class spuLayerTransformer(nn.Module):
         intercept_lb = torch.zeros_like(l_in)
         slope_ub = torch.zeros_like(u_in)
         intercept_ub = torch.zeros_like(u_in)
-        n = l_in.shape[1]
+        n = l_in.shape[0]
 
         if heuristic == 'x':
             p_l = self.x
+        elif heuristic == '0':
+            p_l = torch.zeros_like(l_in)
         elif heuristic == 'midpoint':
             p_l = (u_in - l_in)/2
 
@@ -71,6 +79,12 @@ class spuLayerTransformer(nn.Module):
             
         return torch.diag(slope_lb[:,0]), intercept_lb, torch.diag(slope_ub[:,0]), intercept_ub
 
+    def _compute_bounds_1D(self, l: float, u: float, p_l: float):
+        lb_slope, lb_intercept, ub_slope, ub_intercept = self._compute_linear_bounds_1D(l, u, p_l)
+        l_out = lb_intercept + (lb_slope > 0)*(l * lb_slope) + (lb_slope <= 0)*(u * lb_slope)
+        u_out = ub_intercept + (ub_slope > 0)*(u * ub_slope) + (ub_slope <= 0)*(l * ub_slope)
+        return l_out, u_out
+        
     def _compute_linear_bounds_1D(self, l: float, u: float, p_l: float):
         #p_l = torch.clamp(p_l, min=l, max=u)
         p_l = np.clip(p_l, a_min=l, a_max=u)
@@ -97,9 +111,6 @@ class spuLayerTransformer(nn.Module):
         #self.ub_slope[0, idx] = ub_slope 
         #self.ub_intercept[0, idx] = ub_intercept
         # coming up with the linear bounds doe not make sense if only scalar bounds are computed - box is better
-        #l_out = lb_intercept + (lb_slope > 0)*(l * lb_slope) + (lb_slope <= 0)*(u * lb_slope)
-        #u_out = ub_intercept + (ub_slope > 0)*(u * ub_slope) + (ub_slope <= 0)*(l * ub_slope)
-     
         return lb_slope, lb_intercept, ub_slope, ub_intercept
 
 
@@ -132,16 +143,17 @@ class dummyLayer:
 
 class NetworkTransformer(nn.Module):
 
-    def __init__(self, net: FullyConnected, layer_dim: List[int], input_dim=INPUT_SIZE*INPUT_SIZE):
+    def __init__(self, net: FullyConnected, layer_dim: List[int], true_label: int, input_dim=INPUT_SIZE*INPUT_SIZE):
         super(NetworkTransformer, self).__init__()
         
         self.net = net
         self.layers = [dummyLayer(input_dim)]
+        self.true_label = true_label
         c = 0
         for layer in net.layers:
             if isinstance(layer, Normalization) or isinstance(layer, nn.Flatten):
                 pass
-            elif isinstance(layer, nn.Linear):
+            elif isinstance(layer, nn.Linear) or isinstance(layer, LinearDummy):
                 self.layers.append(linearLayerTransformer(layer.weight, layer.bias))
             elif isinstance(layer, SPU):
                 self.layers.append(spuLayerTransformer(layer_dim[c]))
@@ -188,10 +200,14 @@ class NetworkTransformer(nn.Module):
             raise Exception('Backsubstitution beyond network input is not possible.')
 
         dim0 = layer0.dim
-        M_LB = torch.eye(dim0)
-        B_LB = torch.zeros((dim0,1))
-        M_UB = torch.eye(dim0)
-        B_UB = torch.zeros((dim0,1))
+        W_sub = torch.eye(dim0-1, dim0-1)*(-1)
+        W_sub= torch.cat([W_sub[:, 0:self.true_label],
+                                 torch.ones(dim0-1, 1),
+                                 W_sub[:, self.true_label:dim0]], 1)
+        M_LB = W_sub.clone()
+        B_LB = torch.zeros((dim0 - 1,1))
+        M_UB = W_sub.clone()
+        B_UB = torch.zeros((dim0 - 1,1))
 
         for layer in reversed(self.layers[to_layer:from_layer]): #TODO: Inlcude operation of from_layer?
             if isinstance(layer, linearLayerTransformer):
