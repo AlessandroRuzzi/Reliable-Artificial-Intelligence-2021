@@ -26,7 +26,7 @@ class spuLayerTransformer(nn.Module):
         '''
         x_out = SPU().forward(x)
         self.lb_in = l_in.t()
-        self.lb_in = u_in.t()
+        self.ub_in = u_in.t()
         self.x = x.t()
         l_out = torch.zeros(x.shape)
         u_out = torch.zeros(x.shape)
