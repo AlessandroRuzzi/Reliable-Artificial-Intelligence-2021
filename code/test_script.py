@@ -57,7 +57,7 @@ print('Span iter: ' + str(span_iter))
 
 verified_box = sum((lb_out0[0,true_label] > ub_out0[0,:])).item()==9
 verified_x = torch.all(lb_out1[0,:] > 0).item()
-verified_iter = torch.all(lb_out1[0,:] > 0).item()
+verified_iter = torch.all(lb_out2[0,:] > 0).item()
 
 print('Result box: ' + str(verified_box))
 print('Result x: ' + str(verified_x))

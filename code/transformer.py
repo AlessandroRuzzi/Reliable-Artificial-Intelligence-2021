@@ -137,8 +137,8 @@ class linearLayerTransformer(nn.Module):
 
 class dummyLayer:
     def __init__(self, dim: int):
-        self.l_in = torch.zeros((dim,1))
-        self.u_in = torch.zeros((dim,1))
+        self.lb_in = torch.zeros((dim,1))
+        self.ub_in = torch.zeros((dim,1))
         self.dim = dim
 
 
@@ -175,8 +175,8 @@ class NetworkTransformer(nn.Module):
         x = self._apply_initial_layers(x)  
         l = self._apply_initial_layers(l)  
         u = self._apply_initial_layers(u)  
-        self.layers[0].l_in = l
-        self.layers[0].u_in = u
+        self.layers[0].lb_in = l
+        self.layers[0].ub_in = u
         for la in self.layers[1:-1]:
             x, l, u = la.forward(x, l, u)
         return x, l, u
@@ -188,9 +188,9 @@ class NetworkTransformer(nn.Module):
     
     def iterative_backsub(self, heuristic='midpoint'):
 
-        spu_layers = [i for i in range(self.n_layers - 1) if isinstance(self.layers[i], SPU)]
+        spu_layers = [i for i in range(self.n_layers - 1) if isinstance(self.layers[i], spuLayerTransformer)]
 
-        for l_id in spu_layers:
+        for l_id in spu_layers[1:]:
             self._backsubstitution(l_id, 0, heuristic, useSubtract=False)
         
         return self.backsub_pass(heuristic)
@@ -203,7 +203,7 @@ class NetworkTransformer(nn.Module):
 
         layer0 = self.layers[from_layer]
         # TODO: Can start lyer be any layer or only spu?
-        if not (isinstance(layer0, SPU) or (from_layer == self.n_layers-1)):
+        if not (isinstance(layer0, spuLayerTransformer) or (from_layer == self.n_layers-1)):
             raise Exception('Backsubstitution has to be started from SPU or output layer.')
 
         if to_layer < 0:
@@ -217,7 +217,7 @@ class NetworkTransformer(nn.Module):
                               W_init[:, self.true_label:dim0]], 1)
             B_init = torch.zeros((dim0 - 1,1))
         else:
-            W_sub = torch.eye(dim0, dim0)
+            W_init = torch.eye(dim0, dim0)
             B_init = torch.zeros((dim0,1))
 
         M_LB = W_init.clone()
@@ -244,21 +244,25 @@ class NetworkTransformer(nn.Module):
 
         # TODO: Only allow to be spu layer?
         # TODO: Pass ro_layer bounds as input?
-        l_in = self.layers[to_layer].l_in
-        u_in = self.layers[to_layer].u_in
+        l_in = self.layers[to_layer].lb_in
+        u_in = self.layers[to_layer].ub_in
         x_dummy = torch.zeros_like(l_in)
 
         _, lb0, __ = backsub_layer_lb.forward(x_dummy, l_in, u_in)
         _, __, ub0 = backsub_layer_ub.forward(x_dummy, l_in, u_in)
 
         # TODO: Decide whether to compute input or output bounds for start_layer
+        chg_count = 0
         if not useSubtract:
-            for k in range(self.layers[from_layer].l_in.shape[0]):
-                if lb0[0, k] > self.layers[from_layer].l_in[k,0]:
-                    self.layers[from_layer].l_in[k,0] = lb0[0, k]
-            for k in range(self.layers[from_layer].u_in.shape[0]):        
-                if ub0[0, k] < self.layers[from_layer].u_in[k,0]:
-                    self.layers[from_layer].u_in[k,0] = ub0[0, k]
+            for k in range(self.layers[from_layer].lb_in.shape[0]):
+                if lb0[0, k] > self.layers[from_layer].lb_in[k,0]:
+                    self.layers[from_layer].lb_in[k,0] = lb0[0, k]
+                    chg_count +=1
+            for k in range(self.layers[from_layer].ub_in.shape[0]):        
+                if ub0[0, k] < self.layers[from_layer].ub_in[k,0]:
+                    self.layers[from_layer].ub_in[k,0] = ub0[0, k]
+                    chg_count +=1
+            #print('Changed ' + str(chg_count) + ' bounds in layer ' + str(from_layer))
         else:
             return lb0, ub0
 

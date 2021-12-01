@@ -35,8 +35,8 @@ def analyze(net, inputs, eps, true_label, fc_layers): # TODO: Check if fc:layers
         lb_out0 = torch.maximum(lb_out0, lb_out1)
         ub_out0 = torch.minimum(ub_out0, ub_out1)
         verified = torch.all(lb_out0[0,:] > 0).item()
-        if verified: return True
-    
+        if verified: return True 
+
 
     if not verified: return False
     return 0
