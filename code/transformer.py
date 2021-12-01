@@ -37,8 +37,8 @@ class spuLayerTransformer(nn.Module):
         l_out = torch.zeros(x.shape)
         u_out = torch.zeros(x.shape)
         for i in range(self.dim):
-            #l_out[0, i] , u_out[0, i]  = self._1D_box_bounds(l_in[0, i].item(), u_in[0, i].item())
-            l_out[0, i] , u_out[0, i]  = self._compute_bounds_1D(l_in[0, i].item(), u_in[0, i].item(), 0.0)
+            l_out[0, i] , u_out[0, i]  = self._1D_box_bounds(l_in[0, i].item(), u_in[0, i].item())
+            #l_out[0, i] , u_out[0, i]  = self._compute_bounds_1D(l_in[0, i].item(), u_in[0, i].item(), 0.0)
         return x_out, l_out, u_out
 
 
@@ -165,6 +165,11 @@ class NetworkTransformer(nn.Module):
         self.layers.append(dummyLayer(layer_dim[-1]))
         self.n_layers = len(self.layers)
 
+    def _apply_initial_layers(self, x):
+        x = self.net.layers[0].forward(x)
+        x = self.net.layers[1].forward(x)  
+        return x
+    
     def forward_pass(self, x, l, u):
 
         x = self._apply_initial_layers(x)  
@@ -178,15 +183,19 @@ class NetworkTransformer(nn.Module):
 
     def backsub_pass(self, heuristic='midpoint'):
         # for now one pass through whole network
-        self._backsubstitution(self.n_layers-1, 0, heuristic)
-        return self.layers[-1].l_in, self.layers[-1].u_in
+        lb_out, ub_out = self._backsubstitution(self.n_layers-1, 0, heuristic, useSubtract=True)
+        return lb_out, ub_out 
+    
+    def iterative_backsub(self, heuristic='midpoint'):
 
-    def _apply_initial_layers(self, x):
-        x = self.net.layers[0].forward(x)
-        x = self.net.layers[1].forward(x)  
-        return x
+        spu_layers = [i for i in range(self.n_layers - 1) if isinstance(self.layers[i], SPU)]
 
-    def _backsubstitution(self, from_layer: int, to_layer: int, heuristic: str):
+        for l_id in spu_layers:
+            self._backsubstitution(l_id, 0, heuristic, useSubtract=False)
+        
+        return self.backsub_pass(heuristic)
+
+    def _backsubstitution(self, from_layer: int, to_layer: int, heuristic: str, useSubtract: bool = True):
         '''
         compute new linear bounds for from_layer, by substituting linear bounds from previous layers 
         up until to_layer
@@ -201,14 +210,20 @@ class NetworkTransformer(nn.Module):
             raise Exception('Backsubstitution beyond network input is not possible.')
 
         dim0 = layer0.dim
-        W_sub = torch.eye(dim0-1, dim0-1)*(-1)
-        W_sub= torch.cat([W_sub[:, 0:self.true_label],
-                                 torch.ones(dim0-1, 1),
-                                 W_sub[:, self.true_label:dim0]], 1)
-        M_LB = W_sub.clone()
-        B_LB = torch.zeros((dim0 - 1,1))
-        M_UB = W_sub.clone()
-        B_UB = torch.zeros((dim0 - 1,1))
+        if useSubtract:
+            W_init = torch.eye(dim0-1, dim0-1)*(-1)
+            W_init= torch.cat([W_init[:, 0:self.true_label],
+                              torch.ones(dim0-1, 1),
+                              W_init[:, self.true_label:dim0]], 1)
+            B_init = torch.zeros((dim0 - 1,1))
+        else:
+            W_sub = torch.eye(dim0, dim0)
+            B_init = torch.zeros((dim0,1))
+
+        M_LB = W_init.clone()
+        B_LB = B_init
+        M_UB = W_init.clone()
+        B_UB = B_init
 
         for layer in reversed(self.layers[to_layer:from_layer]): #TODO: Inlcude operation of from_layer?
             if isinstance(layer, linearLayerTransformer):
@@ -237,8 +252,15 @@ class NetworkTransformer(nn.Module):
         _, __, ub0 = backsub_layer_ub.forward(x_dummy, l_in, u_in)
 
         # TODO: Decide whether to compute input or output bounds for start_layer
-        self.layers[from_layer].l_in = lb0
-        self.layers[from_layer].u_in = ub0
+        if not useSubtract:
+            for k in range(self.layers[from_layer].l_in.shape[0]):
+                if lb0[0, k] > self.layers[from_layer].l_in[k,0]:
+                    self.layers[from_layer].l_in[k,0] = lb0[0, k]
+            for k in range(self.layers[from_layer].u_in.shape[0]):        
+                if ub0[0, k] < self.layers[from_layer].u_in[k,0]:
+                    self.layers[from_layer].u_in[k,0] = ub0[0, k]
+        else:
+            return lb0, ub0
 
 
 

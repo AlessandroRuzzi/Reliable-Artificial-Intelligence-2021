@@ -24,12 +24,19 @@ def analyze(net, inputs, eps, true_label, fc_layers): # TODO: Check if fc:layers
         lb_out1, ub_out1 = nt.backsub_pass(heuristic)
         lb_out0 = torch.maximum(lb_out0, lb_out1)
         ub_out0 = torch.minimum(ub_out0, ub_out1)
-        verified = torch.all(lb_out0[0,:] > 0)
+        verified = torch.all(lb_out0[0,:] > 0).item()
         if verified: return True
         
 
+    lb_out0, ub_out0 = nt.iterative_backsub('0')
+    for i, heuristic in enumerate(['x', 'midpoint']):
+
+        lb_out1, ub_out1 = nt.iterative_backsub(heuristic)
+        lb_out0 = torch.maximum(lb_out0, lb_out1)
+        ub_out0 = torch.minimum(ub_out0, ub_out1)
+        verified = torch.all(lb_out0[0,:] > 0).item()
+        if verified: return True
     
-    # TODO: multiple backsub
 
     if not verified: return False
     return 0

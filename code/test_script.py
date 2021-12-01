@@ -44,18 +44,23 @@ x_out0, lb_out0, ub_out0 = nt.forward_pass(inputs, lb, ub)
 
 lb_out1, ub_out1 = nt.backsub_pass(heuristic='0')
 
+lb_out2, ub_out2 = nt.iterative_backsub(heuristic='0')
 
 #%%
 span_box = torch.sum(ub_out0 - lb_out0).item()
 span_x = torch.sum(ub_out1 - lb_out1).item()
+span_iter = torch.sum(ub_out2 - lb_out2).item()
 
 print('Span box: ' + str(span_box))
 print('Span x: ' + str(span_x))
+print('Span iter: ' + str(span_iter))
 
 verified_box = sum((lb_out0[0,true_label] > ub_out0[0,:])).item()==9
-verified_x = torch.all(lb_out1[0,:] > 0)
+verified_x = torch.all(lb_out1[0,:] > 0).item()
+verified_iter = torch.all(lb_out1[0,:] > 0).item()
 
 print('Result box: ' + str(verified_box))
 print('Result x: ' + str(verified_x))
+print('Result iter: ' + str(verified_iter))
 
 # %%
