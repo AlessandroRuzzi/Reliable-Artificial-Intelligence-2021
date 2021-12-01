@@ -18,20 +18,40 @@ def analyze(net, inputs, eps, true_label, fc_layers): # TODO: Check if fc:layers
     verified = sum((lb_out[0,true_label] > ub_out[0,:])).item()==9
     if verified: return True
 
-    lb_out0, ub_out0 = nt.backsub_pass('0')
-    for i, heuristic in enumerate(['x', 'midpoint']):
+    # individual p_l
+    lb_out1, ub_out1 = nt.backsub_pass()
+    verified = torch.all(lb_out1[0,:] > 0).item()
+    if verified: return True
 
-        lb_out1, ub_out1 = nt.backsub_pass(heuristic)
+    # fixed p_l
+    lb_out0, ub_out0 = nt.backsub_pass(fix_heuristic='0')
+    lb_out0 = torch.maximum(lb_out0, lb_out1)
+    ub_out0 = torch.minimum(ub_out0, ub_out1)
+    verified = torch.all(lb_out0[0,:] > 0).item()
+    if verified: return True
+
+    for i, heuristic in enumerate(['x', 'midpoint']):
+        lb_out1, ub_out1 = nt.backsub_pass(fix_heuristic=heuristic)
         lb_out0 = torch.maximum(lb_out0, lb_out1)
         ub_out0 = torch.minimum(ub_out0, ub_out1)
         verified = torch.all(lb_out0[0,:] > 0).item()
         if verified: return True
         
+    # individual p_l
+    lb_out1, ub_out1 = nt.iterative_backsub()
+    verified = torch.all(lb_out1[0,:] > 0).item()
+    if verified: return True
 
-    lb_out0, ub_out0 = nt.iterative_backsub('0')
+    #fixed p_l
+    lb_out0, ub_out0 = nt.iterative_backsub(fix_heuristic='0')
+    lb_out0 = torch.maximum(lb_out0, lb_out1)
+    ub_out0 = torch.minimum(ub_out0, ub_out1)
+    verified = torch.all(lb_out0[0,:] > 0).item()
+    if verified: return True
+
     for i, heuristic in enumerate(['x', 'midpoint']):
 
-        lb_out1, ub_out1 = nt.iterative_backsub(heuristic)
+        lb_out1, ub_out1 = nt.iterative_backsub(fix_heuristic=heuristic)
         lb_out0 = torch.maximum(lb_out0, lb_out1)
         ub_out0 = torch.minimum(ub_out0, ub_out1)
         verified = torch.all(lb_out0[0,:] > 0).item()

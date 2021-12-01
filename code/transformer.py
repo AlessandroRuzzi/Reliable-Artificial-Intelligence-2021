@@ -11,6 +11,17 @@ from networks import SPU
 from utils import get_line_from_two_points, spu, dx_spu
 
 INPUT_SIZE = 28
+HEURISTICS = ['x', '0', 'midpoint']
+
+def get_pl(x: float, l: float, u: float, heuristic: str):
+    if heuristic == 'x':
+        p_l = x
+    elif heuristic == '0':
+        p_l = 0
+    elif heuristic == 'midpoint':
+        p_l = (u - l)/2
+
+    return p_l
 
 class LinearDummy(nn.Module):
     def __init__(self, weights, bias):
@@ -24,6 +35,7 @@ class spuLayerTransformer(nn.Module):
         self.dim = dim
         self.lb_in = torch.zeros((dim,1))
         self.ub_in = torch.zeros((dim,1))
+        self.heuristics = []
 
 # TODO: maybe decouple bounds computation from forward pass?
     def forward(self, x, l_in, u_in):
@@ -36,9 +48,19 @@ class spuLayerTransformer(nn.Module):
         self.x = x.t()
         l_out = torch.zeros(x.shape)
         u_out = torch.zeros(x.shape)
+        span_heur = torch.zeros(len(HEURISTICS))
         for i in range(self.dim):
             l_out[0, i] , u_out[0, i]  = self._1D_box_bounds(l_in[0, i].item(), u_in[0, i].item())
-            #l_out[0, i] , u_out[0, i]  = self._compute_bounds_1D(l_in[0, i].item(), u_in[0, i].item(), 0.0)
+
+            for k, heur in enumerate(HEURISTICS):
+                p_l = get_pl(x[0, i].item(), l_in[0, i].item(), u_in[0, i].item(), heur)
+                l_h, u_h  = self._compute_bounds_1D(l_in[0, i].item(), u_in[0, i].item(), p_l)
+                span_heur[k] = u_h - l_h
+            min_span = torch.min(span_heur)
+            min_heur = HEURISTICS[(span_heur == min_span).nonzero(as_tuple=True)[0][0]]
+            self.heuristics.append(min_heur)
+
+
         return x_out, l_out, u_out
 
 
@@ -57,7 +79,7 @@ class spuLayerTransformer(nn.Module):
         return l_out,u_out
 
     
-    def compute_linear_bounds(self, l_in: torch.Tensor, u_in: torch.Tensor, heuristic: str = 'x'):
+    def compute_linear_bounds(self, l_in: torch.Tensor, u_in: torch.Tensor, heuristics: List[str]):
         '''
         input shape: (n_dim, 1)
         '''
@@ -67,16 +89,17 @@ class spuLayerTransformer(nn.Module):
         intercept_ub = torch.zeros_like(u_in)
         n = l_in.shape[0]
 
-        if heuristic == 'x':
+        '''if heuristic == 'x':
             p_l = self.x
         elif heuristic == '0':
             p_l = torch.zeros_like(l_in)
         elif heuristic == 'midpoint':
-            p_l = (u_in - l_in)/2
+            p_l = (u_in - l_in)/2'''
 
         # TODO: Is there a way to vectorize this in torch?
         for i in range(n):
-            slope_lb[i,0], intercept_lb[i,0], slope_ub[i,0], intercept_ub[i,0] = self._compute_linear_bounds_1D(l_in[i,0].item(), u_in[i,0].item(), p_l[i,0].item())
+            p_l = get_pl(self.x[i,0].item(), l_in[i,0].item(), u_in[i,0].item(), heuristics[i])
+            slope_lb[i,0], intercept_lb[i,0], slope_ub[i,0], intercept_ub[i,0] = self._compute_linear_bounds_1D(l_in[i,0].item(), u_in[i,0].item(), p_l)
             
         return torch.diag(slope_lb[:,0]), intercept_lb, torch.diag(slope_ub[:,0]), intercept_ub
 
@@ -181,21 +204,21 @@ class NetworkTransformer(nn.Module):
             x, l, u = la.forward(x, l, u)
         return x, l, u
 
-    def backsub_pass(self, heuristic='midpoint'):
+    def backsub_pass(self, fix_heuristic=''):
         # for now one pass through whole network
-        lb_out, ub_out = self._backsubstitution(self.n_layers-1, 0, heuristic, useSubtract=True)
+        lb_out, ub_out = self._backsubstitution(self.n_layers-1, 0, fix_heuristic, useSubtract=True)
         return lb_out, ub_out 
     
-    def iterative_backsub(self, heuristic='midpoint'):
+    def iterative_backsub(self, fix_heuristic=''):
 
         spu_layers = [i for i in range(self.n_layers - 1) if isinstance(self.layers[i], spuLayerTransformer)]
 
         for l_id in spu_layers[1:]:
-            self._backsubstitution(l_id, 0, heuristic, useSubtract=False)
+            self._backsubstitution(l_id, 0, fix_heuristic, useSubtract=False)
         
-        return self.backsub_pass(heuristic)
+        return self.backsub_pass(fix_heuristic)
 
-    def _backsubstitution(self, from_layer: int, to_layer: int, heuristic: str, useSubtract: bool = True):
+    def _backsubstitution(self, from_layer: int, to_layer: int, fix_heuristic: str, useSubtract: bool = True):
         '''
         compute new linear bounds for from_layer, by substituting linear bounds from previous layers 
         up until to_layer
@@ -235,7 +258,11 @@ class NetworkTransformer(nn.Module):
                 M_UB = torch.mm(M_UB, w)
 
             elif isinstance(layer, spuLayerTransformer):
-                lb_slope, lb_intercept, ub_slope, ub_intercept = layer.compute_linear_bounds(layer.lb_in, layer.ub_in, heuristic)
+                if fix_heuristic == '':
+                    heur = layer.heuristics
+                else :
+                    heur = [fix_heuristic for _ in range(layer.dim)]
+                lb_slope, lb_intercept, ub_slope, ub_intercept = layer.compute_linear_bounds(layer.lb_in, layer.ub_in, heur)
                 M_LB, B_LB = self._compute_spu_backsub_params(M_LB, B_LB, lb_slope, lb_intercept, ub_slope, ub_intercept)
                 M_UB, B_UB = self._compute_spu_backsub_params(M_UB, B_UB, ub_slope, ub_intercept, lb_slope, lb_intercept)
                 
