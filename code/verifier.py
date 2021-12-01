@@ -13,22 +13,25 @@ INPUT_SIZE = 28
 def analyze(net, inputs, eps, true_label, fc_layers): # TODO: Check if fc:layers agr is allowed!
 
     lb, ub = get_input_bounds(inputs, eps)
-    nt = NetworkTransformer(net, fc_layers, true_label=true_label)
+    nt = NetworkTransformer(net, fc_layers, true_label=true_label, input_dim=lb.shape[0])
     x_out, lb_out, ub_out = nt.forward_pass(inputs, lb, ub)
-    verified_box = sum((lb_out[0,true_label] > ub_out[0,:])).item()==9
-    if verified_box: return 'verified'
+    verified = sum((lb_out[0,true_label] > ub_out[0,:])).item()==9
+    if verified: return True
 
-    lb_out0, ub_out0 = nt.backsub_pass('x')
-    for i, heuristic in enumerate(['0', 'midpoint']):
+    lb_out0, ub_out0 = nt.backsub_pass('0')
+    for i, heuristic in enumerate(['x', 'midpoint']):
 
         lb_out1, ub_out1 = nt.backsub_pass(heuristic)
-        lb0 = torch.maximum(lb_out0, lb_out1)
-        ub0 = torch.minimum(ub_out0, ub_out1)
+        lb_out0 = torch.maximum(lb_out0, lb_out1)
+        ub_out0 = torch.minimum(ub_out0, ub_out1)
         verified = torch.all(lb_out0[0,:] > 0)
-        if verified: return 'verified'
+        if verified: return True
+        
 
     
     # TODO: multiple backsub
+
+    if not verified: return False
     return 0
 
 
@@ -48,15 +51,20 @@ def main():
         eps = float(args.spec[:-4].split('/')[-1].split('_')[-1])
 
     if args.net.endswith('fc1'):
-        net = FullyConnected(DEVICE, INPUT_SIZE, [50, 10]).to(DEVICE)
+        fc_layers = [50, 10]
+        net = FullyConnected(DEVICE, INPUT_SIZE, fc_layers).to(DEVICE)
     elif args.net.endswith('fc2'):
-        net = FullyConnected(DEVICE, INPUT_SIZE, [100, 50, 10]).to(DEVICE)
+        fc_layers = [100, 50, 10]
+        net = FullyConnected(DEVICE, INPUT_SIZE, fc_layers).to(DEVICE)
     elif args.net.endswith('fc3'):
-        net = FullyConnected(DEVICE, INPUT_SIZE, [100, 100, 10]).to(DEVICE)
+        fc_layers = [100, 100, 10]
+        net = FullyConnected(DEVICE, INPUT_SIZE, fc_layers).to(DEVICE)
     elif args.net.endswith('fc4'):
-        net = FullyConnected(DEVICE, INPUT_SIZE, [100, 100, 50, 10]).to(DEVICE)
+        fc_layers = [100, 100, 50, 10]
+        net = FullyConnected(DEVICE, INPUT_SIZE, fc_layers).to(DEVICE)
     elif args.net.endswith('fc5'):
-        net = FullyConnected(DEVICE, INPUT_SIZE, [100, 100, 100, 100, 10]).to(DEVICE)
+        fc_layers = [100, 100, 100, 100, 10]
+        net = FullyConnected(DEVICE, INPUT_SIZE, fc_layers).to(DEVICE)
     else:
         assert False
 
@@ -67,7 +75,7 @@ def main():
     pred_label = outs.max(dim=1)[1].item()
     assert pred_label == true_label
 
-    if analyze(net, inputs, eps, true_label):
+    if analyze(net, inputs, eps, true_label, fc_layers):
         print('verified')
     else:
         print('not verified')

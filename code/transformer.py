@@ -7,9 +7,10 @@ from typing import List
 
 from networks import FullyConnected, Normalization
 from networks import SPU
-from verifier import INPUT_SIZE
 
 from utils import get_line_from_two_points, spu, dx_spu
+
+INPUT_SIZE = 28
 
 class LinearDummy(nn.Module):
     def __init__(self, weights, bias):
