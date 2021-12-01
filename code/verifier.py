@@ -3,11 +3,32 @@ import torch
 from networks import FullyConnected
 import torch.nn as nn
 
+from transformer import NetworkTransformer
+from utils import get_input_bounds
+
 DEVICE = 'cpu'
 INPUT_SIZE = 28
 
 
-def analyze(net, inputs, eps, true_label):
+def analyze(net, inputs, eps, true_label, fc_layers): # TODO: Check if fc:layers agr is allowed!
+
+    lb, ub = get_input_bounds(inputs, eps)
+    nt = NetworkTransformer(net, fc_layers, true_label=true_label)
+    x_out, lb_out, ub_out = nt.forward_pass(inputs, lb, ub)
+    verified_box = sum((lb_out[0,true_label] > ub_out[0,:])).item()==9
+    if verified_box: return 'verified'
+
+    lb_out0, ub_out0 = nt.backsub_pass('x')
+    for i, heuristic in enumerate(['0', 'midpoint']):
+
+        lb_out1, ub_out1 = nt.backsub_pass(heuristic)
+        lb0 = torch.maximum(lb_out0, lb_out1)
+        ub0 = torch.minimum(ub_out0, ub_out1)
+        verified = torch.all(lb_out0[0,:] > 0)
+        if verified: return 'verified'
+
+    
+    # TODO: multiple backsub
     return 0
 
 

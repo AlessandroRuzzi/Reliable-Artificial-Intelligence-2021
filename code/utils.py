@@ -64,6 +64,10 @@ def get_input_bounds(input, eps, l=0, u=1):
     return lb, ub
 
 
+def get_input_bounds(input, eps, l=0, u=1):
+    lb = torch.clamp(input - eps, min = l)
+    ub = torch.clamp(input + eps, max = u)
+    return lb, ub
 
 #%%
 if __name__ == "__main__":

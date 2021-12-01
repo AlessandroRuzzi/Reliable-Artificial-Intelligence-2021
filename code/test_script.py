@@ -5,12 +5,8 @@ from numpy.core.records import get_remaining_size
 import torch
 from networks import FullyConnected
 from transformer import NetworkTransformer
-#from utils import get_input_bounds
+from utils import get_input_bounds
 
-def get_input_bounds(input, eps, l=0, u=1):
-    lb = torch.clamp(input - eps, min = l)
-    ub = torch.clamp(input + eps, max = u)
-    return lb, ub
 
 
 DEVICE = 'cpu'
