@@ -18,9 +18,9 @@ def get_pl(x: float, l: float, u: float, heuristic: str):
         p_l = x
     elif heuristic == '0':
         p_l = 0
-    elif heuristic == '0_x':
+    elif heuristic == '0_mid':
         if u < 0 or l > 0:
-            p_l = x
+            p_l = l + (u - l)/2
         else:
             p_l = 0
     elif heuristic == 'midpoint':
