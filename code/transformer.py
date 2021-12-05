@@ -18,8 +18,13 @@ def get_pl(x: float, l: float, u: float, heuristic: str):
         p_l = x
     elif heuristic == '0':
         p_l = 0
+    elif heuristic == '0_x':
+        if u < 0 or l > 0:
+            p_l = x
+        else:
+            p_l = 0
     elif heuristic == 'midpoint':
-        p_l = (u - l)/2
+        p_l = l + (u - l)/2
 
     return p_l
 
@@ -51,7 +56,7 @@ class spuLayerTransformer(nn.Module):
         span_heur = torch.zeros(len(HEURISTICS))
         for i in range(self.dim):
             l_out[0, i] , u_out[0, i]  = self._1D_box_bounds(l_in[0, i].item(), u_in[0, i].item())
-
+            
             for k, heur in enumerate(HEURISTICS):
                 p_l = get_pl(x[0, i].item(), l_in[0, i].item(), u_in[0, i].item(), heur)
                 l_h, u_h  = self._compute_bounds_1D(l_in[0, i].item(), u_in[0, i].item(), p_l)
@@ -59,7 +64,7 @@ class spuLayerTransformer(nn.Module):
             min_span = torch.min(span_heur)
             min_heur = HEURISTICS[(span_heur == min_span).nonzero(as_tuple=True)[0][0]]
             self.heuristics.append(min_heur)
-
+            
 
         return x_out, l_out, u_out
 
@@ -74,7 +79,7 @@ class spuLayerTransformer(nn.Module):
             l_out = spu(u)
             u_out = spu(l)
         else:
-            u_out = spu(u)
+            u_out = max(spu(u),spu(l))
             l_out = -0.5
         return l_out,u_out
 
@@ -98,6 +103,7 @@ class spuLayerTransformer(nn.Module):
 
         # TODO: Is there a way to vectorize this in torch?
         for i in range(n):
+            #print(heuristics[i])
             p_l = get_pl(self.x[i,0].item(), l_in[i,0].item(), u_in[i,0].item(), heuristics[i])
             slope_lb[i,0], intercept_lb[i,0], slope_ub[i,0], intercept_ub[i,0] = self._compute_linear_bounds_1D(l_in[i,0].item(), u_in[i,0].item(), p_l)
             

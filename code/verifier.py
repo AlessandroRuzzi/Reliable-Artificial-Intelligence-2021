@@ -8,7 +8,7 @@ from utils import get_input_bounds
 
 DEVICE = 'cpu'
 INPUT_SIZE = 28
-
+HEURISTICS = ['x','midpoint']
 
 def analyze(net, inputs, eps, true_label, fc_layers): # TODO: Check if fc:layers agr is allowed!
 
@@ -16,31 +16,38 @@ def analyze(net, inputs, eps, true_label, fc_layers): # TODO: Check if fc:layers
     nt = NetworkTransformer(net, fc_layers, true_label=true_label, input_dim=lb.shape[0])
     x_out, lb_out, ub_out = nt.forward_pass(inputs, lb, ub)
     verified = sum((lb_out[0,true_label] > ub_out[0,:])).item()==9
+    #print(lb_out)
+    #print(ub_out)
     if verified: return True
-
+    #print("here1")
     # individual p_l
+    
     lb_out1, ub_out1 = nt.backsub_pass()
     verified = torch.all(lb_out1[0,:] > 0).item()
     if verified: return True
-
+    #print("here2")
     # fixed p_l
     lb_out0, ub_out0 = nt.backsub_pass(fix_heuristic='0')
     lb_out0 = torch.maximum(lb_out0, lb_out1)
     ub_out0 = torch.minimum(ub_out0, ub_out1)
     verified = torch.all(lb_out0[0,:] > 0).item()
     if verified: return True
+    #print("here3")
 
-    for i, heuristic in enumerate(['x', 'midpoint']):
+    for i, heuristic in enumerate(HEURISTICS):
         lb_out1, ub_out1 = nt.backsub_pass(fix_heuristic=heuristic)
         lb_out0 = torch.maximum(lb_out0, lb_out1)
         ub_out0 = torch.minimum(ub_out0, ub_out1)
         verified = torch.all(lb_out0[0,:] > 0).item()
         if verified: return True
+    #print("here4")
         
     # individual p_l
     lb_out1, ub_out1 = nt.iterative_backsub()
     verified = torch.all(lb_out1[0,:] > 0).item()
     if verified: return True
+
+    #print("here5")
 
     #fixed p_l
     lb_out0, ub_out0 = nt.iterative_backsub(fix_heuristic='0')
@@ -49,7 +56,9 @@ def analyze(net, inputs, eps, true_label, fc_layers): # TODO: Check if fc:layers
     verified = torch.all(lb_out0[0,:] > 0).item()
     if verified: return True
 
-    for i, heuristic in enumerate(['x', 'midpoint']):
+    #print("here6")
+
+    for i, heuristic in enumerate(HEURISTICS):
 
         lb_out1, ub_out1 = nt.iterative_backsub(fix_heuristic=heuristic)
         lb_out0 = torch.maximum(lb_out0, lb_out1)
@@ -57,6 +66,8 @@ def analyze(net, inputs, eps, true_label, fc_layers): # TODO: Check if fc:layers
         verified = torch.all(lb_out0[0,:] > 0).item()
         if verified: return True 
 
+    #print("here7")
+   
 
     if not verified: return False
     return 0
