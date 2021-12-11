@@ -8,7 +8,7 @@ from utils import get_input_bounds
 
 DEVICE = 'cpu'
 INPUT_SIZE = 28
-HEURISTICS = ['x','midpoint']
+HEURISTICS = ['x','midpoint','0']
 
 def analyze(net, inputs, eps, true_label, fc_layers): # TODO: Check if fc:layers agr is allowed!
 
@@ -30,6 +30,7 @@ def analyze(net, inputs, eps, true_label, fc_layers): # TODO: Check if fc:layers
     lb_out0, ub_out0 = nt.backsub_pass(fix_heuristic='0')
     lb_out0 = torch.maximum(lb_out0, lb_out1)
     ub_out0 = torch.minimum(ub_out0, ub_out1)
+    #print(lb_out0)
     verified = torch.all(lb_out0[0,:] > 0).item()
     if verified: return True
     #print("here3")

@@ -9,20 +9,59 @@ from networks import FullyConnected, Normalization
 from networks import SPU
 
 from utils import get_line_from_two_points, spu, dx_spu
-
 INPUT_SIZE = 28
-HEURISTICS = ['x', '0', 'midpoint']
+HEURISTICS = ['0','x','midpoint']
+
+def compute_linear_bounds_1D(l: float, u: float, p_l: float):
+        #p_l = torch.clamp(p_l, min=l, max=u)
+        p_l = np.clip(p_l, a_min=l, a_max=u)
+        if u > 0:
+            # ub is fixed
+            (ub_slope, ub_intercept) = get_line_from_two_points(l, spu(l), u, spu(u))
+
+            if p_l >= 0:
+                # lb is chosen as tangent at p_l
+                lb_slope = dx_spu(p_l)
+                lb_intercept = spu(p_l) + (-p_l)*lb_slope
+            else:
+                # lb is chosen as tight for x<0 
+                (lb_slope, lb_intercept) = get_line_from_two_points(l, spu(l), 0, spu(0))
+        elif u <= 0:
+            # now ub based on tangent and lb fixed
+            (lb_slope, lb_intercept) = get_line_from_two_points(l, spu(l), u, spu(u))
+            ub_slope = dx_spu(p_l)
+            ub_intercept = spu(p_l) + (-p_l)*ub_slope
+        
+        return lb_slope, lb_intercept, ub_slope, ub_intercept
+
+def PolyArea(x,y):
+    return 0.5*np.abs(np.dot(x,np.roll(y,1))-np.dot(y,np.roll(x,1)))
+    
+
+def get_area(l,u,p_l):
+    w_l,b_l,w_u,b_u = compute_linear_bounds_1D(l, u, p_l)
+    x = [l,l,u,u]
+    y = [b_l + (l * w_l),b_l + (u * w_l), b_u + (l * w_u), b_u + (u * w_u) ]
+    return PolyArea(x,y)
 
 def get_pl(x: float, l: float, u: float, heuristic: str):
     if heuristic == 'x':
         p_l = x
     elif heuristic == '0':
         p_l = 0
-    elif heuristic == '0_mid':
-        if u < 0 or l > 0:
-            p_l = l + (u - l)/2
-        else:
-            p_l = 0
+    elif heuristic == 'pl_min_area':
+        p_l_possible = list(np.arange(l, u, 0.1))
+        min_area = 0
+        min_p_l = 0
+        for i, p_l_i in enumerate(p_l_possible):
+            area = get_area(l,u,p_l_i)
+            if i == 0:
+                min_area = area
+                min_p_l = p_l_i
+            elif area < min_area:
+                min_area = area
+                min_p_l = p_l_i
+        p_l = min_p_l
     elif heuristic == 'midpoint':
         p_l = l + (u - l)/2
 
