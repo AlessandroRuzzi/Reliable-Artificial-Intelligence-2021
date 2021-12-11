@@ -8,7 +8,7 @@ from utils import get_input_bounds
 
 DEVICE = 'cpu'
 INPUT_SIZE = 28
-HEURISTICS = ['x','midpoint','0']
+HEURISTICS = ['x','midpoint','0','try']
 
 def analyze(net, inputs, eps, true_label, fc_layers): # TODO: Check if fc:layers agr is allowed!
 
@@ -39,13 +39,14 @@ def analyze(net, inputs, eps, true_label, fc_layers): # TODO: Check if fc:layers
         lb_out1, ub_out1 = nt.backsub_pass(fix_heuristic=heuristic)
         lb_out0 = torch.maximum(lb_out0, lb_out1)
         ub_out0 = torch.minimum(ub_out0, ub_out1)
-        verified = torch.all(lb_out0[0,:] > 0).item()
+        verified = torch.all(lb_out1[0,:] > 0).item()
         if verified: return True
     #print("here4")
         
     # individual p_l
     lb_out1, ub_out1 = nt.iterative_backsub()
     verified = torch.all(lb_out1[0,:] > 0).item()
+    #print(lb_out1)
     if verified: return True
 
     #print("here5")
@@ -55,6 +56,7 @@ def analyze(net, inputs, eps, true_label, fc_layers): # TODO: Check if fc:layers
     lb_out0 = torch.maximum(lb_out0, lb_out1)
     ub_out0 = torch.minimum(ub_out0, ub_out1)
     verified = torch.all(lb_out0[0,:] > 0).item()
+    #print(lb_out0)
     if verified: return True
 
     #print("here6")
@@ -64,7 +66,8 @@ def analyze(net, inputs, eps, true_label, fc_layers): # TODO: Check if fc:layers
         lb_out1, ub_out1 = nt.iterative_backsub(fix_heuristic=heuristic)
         lb_out0 = torch.maximum(lb_out0, lb_out1)
         ub_out0 = torch.minimum(ub_out0, ub_out1)
-        verified = torch.all(lb_out0[0,:] > 0).item()
+        verified = torch.all(lb_out1[0,:] > 0).item()
+        #print(lb_out1)
         if verified: return True 
 
     #print("here7")

@@ -62,6 +62,12 @@ def get_pl(x: float, l: float, u: float, heuristic: str):
                 min_area = area
                 min_p_l = p_l_i
         p_l = min_p_l
+    elif heuristic == 'try':
+        mid = (l + (u - l)/2)
+        if mid >= 0:
+            p_l = mid - mid/(u-l)
+        else:
+            p_l = mid + mid/(u-l)
     elif heuristic == 'midpoint':
         p_l = l + (u - l)/2
 
