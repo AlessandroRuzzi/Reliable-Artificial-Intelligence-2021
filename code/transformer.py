@@ -10,7 +10,7 @@ from networks import SPU
 
 from utils import get_line_from_two_points, spu, dx_spu
 INPUT_SIZE = 28
-HEURISTICS = ['0','x','midpoint']
+HEURISTICS = ['0','x','midpoint', 'pl_min_area', 'try']
 
 def compute_linear_bounds_1D(l: float, u: float, p_l: float):
         #p_l = torch.clamp(p_l, min=l, max=u)
