@@ -69,6 +69,37 @@ def get_input_bounds(input, eps, l=0, u=1):
     ub = torch.clamp(input + eps, max = u)
     return lb.reshape(-1,1), ub.reshape(-1,1)
 
+def compute_linear_bounds_1D(l: float, u: float, p_l: float):
+        #p_l = torch.clamp(p_l, min=l, max=u)
+        p_l = np.clip(p_l, a_min=l, a_max=u)
+        if u > 0:
+            # ub is fixed
+            (ub_slope, ub_intercept) = get_line_from_two_points(l, spu(l), u, spu(u))
+
+            if p_l >= 0:
+                # lb is chosen as tangent at p_l
+                lb_slope = dx_spu(p_l)
+                lb_intercept = spu(p_l) + (-p_l)*lb_slope
+            else:
+                # lb is chosen as tight for x<0 
+                (lb_slope, lb_intercept) = get_line_from_two_points(l, spu(l), 0, spu(0))
+        elif u <= 0:
+            # now ub based on tangent and lb fixed
+            (lb_slope, lb_intercept) = get_line_from_two_points(l, spu(l), u, spu(u))
+            ub_slope = dx_spu(p_l)
+            ub_intercept = spu(p_l) + (-p_l)*ub_slope
+        
+        return lb_slope, lb_intercept, ub_slope, ub_intercept
+
+def PolyArea(x,y):
+    return 0.5*np.abs(np.dot(x,np.roll(y,1))-np.dot(y,np.roll(x,1)))
+    
+
+def get_area(l,u,p_l):
+    w_l,b_l,w_u,b_u = compute_linear_bounds_1D(l, u, p_l)
+    x = [l,l,u,u]
+    y = [b_l + (l * w_l),b_l + (u * w_l), b_u + (l * w_u), b_u + (u * w_u) ]
+    return PolyArea(x,y)
 
 #%%
 '''

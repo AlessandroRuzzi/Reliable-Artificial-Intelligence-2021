@@ -3,14 +3,13 @@ import torch
 from networks import FullyConnected
 import torch.nn as nn
 
-from transformer import NetworkTransformer
+from transformer import NetworkTransformer, INPUT_SIZE
 from utils import get_input_bounds
 
 DEVICE = 'cpu'
-INPUT_SIZE = 28
+HEURISTICS = ['0','x','midpoint', '0', 'try']
 
-
-def analyze(net, inputs, eps, true_label, fc_layers): # TODO: Check if fc:layers agr is allowed!
+def analyze(net, inputs, eps, true_label, fc_layers): 
 
     lb, ub = get_input_bounds(inputs, eps)
     nt = NetworkTransformer(net, fc_layers, true_label=true_label, input_dim=lb.shape[0])
@@ -18,45 +17,33 @@ def analyze(net, inputs, eps, true_label, fc_layers): # TODO: Check if fc:layers
     verified = sum((lb_out[0,true_label] > ub_out[0,:])).item()==9
     if verified: return True
 
-    # individual p_l
-    lb_out1, ub_out1 = nt.backsub_pass()
-    verified = torch.all(lb_out1[0,:] > 0).item()
-    if verified: return True
-
-    # fixed p_l
-    lb_out0, ub_out0 = nt.backsub_pass(fix_heuristic='0')
-    lb_out0 = torch.maximum(lb_out0, lb_out1)
-    ub_out0 = torch.minimum(ub_out0, ub_out1)
+    # single backsub, individual p_l
+    lb_out0, ub_out0 = nt.backsub_pass()
     verified = torch.all(lb_out0[0,:] > 0).item()
     if verified: return True
 
-    for i, heuristic in enumerate(['x', 'midpoint']):
+    # single backsub, fixed p_l
+    for i, heuristic in enumerate(HEURISTICS):
         lb_out1, ub_out1 = nt.backsub_pass(fix_heuristic=heuristic)
         lb_out0 = torch.maximum(lb_out0, lb_out1)
         ub_out0 = torch.minimum(ub_out0, ub_out1)
         verified = torch.all(lb_out0[0,:] > 0).item()
         if verified: return True
         
-    # individual p_l
+    # iterative backsub, individual p_l
     lb_out1, ub_out1 = nt.iterative_backsub()
-    verified = torch.all(lb_out1[0,:] > 0).item()
-    if verified: return True
-
-    #fixed p_l
-    lb_out0, ub_out0 = nt.iterative_backsub(fix_heuristic='0')
     lb_out0 = torch.maximum(lb_out0, lb_out1)
     ub_out0 = torch.minimum(ub_out0, ub_out1)
     verified = torch.all(lb_out0[0,:] > 0).item()
     if verified: return True
 
-    for i, heuristic in enumerate(['x', 'midpoint']):
-
+    #iterative backsub, fixed p_l
+    for i, heuristic in enumerate(HEURISTICS):
         lb_out1, ub_out1 = nt.iterative_backsub(fix_heuristic=heuristic)
         lb_out0 = torch.maximum(lb_out0, lb_out1)
         ub_out0 = torch.minimum(ub_out0, ub_out1)
         verified = torch.all(lb_out0[0,:] > 0).item()
         if verified: return True 
-
 
     if not verified: return False
     return 0

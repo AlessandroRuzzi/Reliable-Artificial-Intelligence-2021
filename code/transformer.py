@@ -8,10 +8,12 @@ from typing import List
 from networks import FullyConnected, Normalization
 from networks import SPU
 
-from utils import get_line_from_two_points, spu, dx_spu
+from utils import get_line_from_two_points, spu, dx_spu, get_area
 
 INPUT_SIZE = 28
-HEURISTICS = ['x', '0', 'midpoint']
+# Only these heuristics will be applied during verification
+#HEURISTICS = ['0','x','midpoint', 'try']
+HEURISTICS = ['0','x','midpoint']
 
 def get_pl(x: float, l: float, u: float, heuristic: str):
     if heuristic == 'x':
@@ -19,8 +21,28 @@ def get_pl(x: float, l: float, u: float, heuristic: str):
     elif heuristic == '0':
         p_l = 0
     elif heuristic == 'midpoint':
-        p_l = (u - l)/2
-
+        p_l = l + (u - l)/2
+    elif heuristic == 'try':
+        mid = (l + (u - l)/2)
+        if mid >= 0:
+            p_l = mid - mid/(u-l)
+        else:
+            p_l = mid + mid/(u-l)
+    elif heuristic == 'pl_min_area':
+        p_l_possible = list(np.arange(l, u, 0.1))
+        min_area = 0
+        min_p_l = 0
+        for i, p_l_i in enumerate(p_l_possible):
+            area = get_area(l,u,p_l_i)
+            if i == 0:
+                min_area = area
+                min_p_l = p_l_i
+            elif area < min_area:
+                min_area = area
+                min_p_l = p_l_i
+        p_l = min_p_l
+    else:
+        raise Exception("Unknown heuristic.")
     return p_l
 
 class LinearDummy(nn.Module):
@@ -48,18 +70,20 @@ class spuLayerTransformer(nn.Module):
         self.x = x.t()
         l_out = torch.zeros(x.shape)
         u_out = torch.zeros(x.shape)
-        span_heur = torch.zeros(len(HEURISTICS))
+        #modified_heur = [h for h in HEURISTICS if h != 'try']
+        modified_heur = HEURISTICS
+        span_heur = torch.zeros(len(modified_heur))
+        
         for i in range(self.dim):
             l_out[0, i] , u_out[0, i]  = self._1D_box_bounds(l_in[0, i].item(), u_in[0, i].item())
 
-            for k, heur in enumerate(HEURISTICS):
+            for k, heur in enumerate(modified_heur):
                 p_l = get_pl(x[0, i].item(), l_in[0, i].item(), u_in[0, i].item(), heur)
                 l_h, u_h  = self._compute_bounds_1D(l_in[0, i].item(), u_in[0, i].item(), p_l)
                 span_heur[k] = u_h - l_h
             min_span = torch.min(span_heur)
-            min_heur = HEURISTICS[(span_heur == min_span).nonzero(as_tuple=True)[0][0]]
+            min_heur = modified_heur[(span_heur == min_span).nonzero(as_tuple=True)[0][0]]
             self.heuristics.append(min_heur)
-
 
         return x_out, l_out, u_out
 
@@ -74,7 +98,7 @@ class spuLayerTransformer(nn.Module):
             l_out = spu(u)
             u_out = spu(l)
         else:
-            u_out = spu(u)
+            u_out = max(spu(u),spu(l))
             l_out = -0.5
         return l_out,u_out
 
@@ -89,13 +113,6 @@ class spuLayerTransformer(nn.Module):
         intercept_ub = torch.zeros_like(u_in)
         n = l_in.shape[0]
 
-        '''if heuristic == 'x':
-            p_l = self.x
-        elif heuristic == '0':
-            p_l = torch.zeros_like(l_in)
-        elif heuristic == 'midpoint':
-            p_l = (u_in - l_in)/2'''
-
         # TODO: Is there a way to vectorize this in torch?
         for i in range(n):
             p_l = get_pl(self.x[i,0].item(), l_in[i,0].item(), u_in[i,0].item(), heuristics[i])
@@ -108,9 +125,11 @@ class spuLayerTransformer(nn.Module):
         l_out = lb_intercept + (lb_slope > 0)*(l * lb_slope) + (lb_slope <= 0)*(u * lb_slope)
         u_out = ub_intercept + (ub_slope > 0)*(u * ub_slope) + (ub_slope <= 0)*(l * ub_slope)
         return l_out, u_out
-        
-    def _compute_linear_bounds_1D(self, l: float, u: float, p_l: float):
+
+    @staticmethod  
+    def _compute_linear_bounds_1D(l: float, u: float, p_l: float):
         #p_l = torch.clamp(p_l, min=l, max=u)
+        # This will take care of inadmissable p_l
         p_l = np.clip(p_l, a_min=l, a_max=u)
         if u > 0:
             # ub is fixed
@@ -129,12 +148,6 @@ class spuLayerTransformer(nn.Module):
             ub_slope = dx_spu(p_l)
             ub_intercept = spu(p_l) + (-p_l)*ub_slope
 
-        # safe linear bounds for backsubstitution
-        #self.lb_slope[0, idx] = lb_slope 
-        #self.lb_intercept[0, idx] = lb_intercept
-        #self.ub_slope[0, idx] = ub_slope 
-        #self.ub_intercept[0, idx] = ub_intercept
-        # coming up with the linear bounds doe not make sense if only scalar bounds are computed - box is better
         return lb_slope, lb_intercept, ub_slope, ub_intercept
 
 
@@ -225,7 +238,6 @@ class NetworkTransformer(nn.Module):
         '''
 
         layer0 = self.layers[from_layer]
-        # TODO: Can start lyer be any layer or only spu?
         if not (isinstance(layer0, spuLayerTransformer) or (from_layer == self.n_layers-1)):
             raise Exception('Backsubstitution has to be started from SPU or output layer.')
 
@@ -248,7 +260,7 @@ class NetworkTransformer(nn.Module):
         M_UB = W_init.clone()
         B_UB = B_init
 
-        for layer in reversed(self.layers[to_layer:from_layer]): #TODO: Inlcude operation of from_layer?
+        for layer in reversed(self.layers[to_layer:from_layer]): 
             if isinstance(layer, linearLayerTransformer):
                 w = layer.weights
                 b = layer.bias
@@ -269,8 +281,6 @@ class NetworkTransformer(nn.Module):
         backsub_layer_lb = linearLayerTransformer(M_LB, B_LB)
         backsub_layer_ub = linearLayerTransformer(M_UB, B_UB)
 
-        # TODO: Only allow to be spu layer?
-        # TODO: Pass ro_layer bounds as input?
         l_in = self.layers[to_layer].lb_in
         u_in = self.layers[to_layer].ub_in
         x_dummy = torch.zeros_like(l_in)
@@ -278,18 +288,13 @@ class NetworkTransformer(nn.Module):
         _, lb0, __ = backsub_layer_lb.forward(x_dummy, l_in, u_in)
         _, __, ub0 = backsub_layer_ub.forward(x_dummy, l_in, u_in)
 
-        # TODO: Decide whether to compute input or output bounds for start_layer
-        chg_count = 0
         if not useSubtract:
             for k in range(self.layers[from_layer].lb_in.shape[0]):
                 if lb0[0, k] > self.layers[from_layer].lb_in[k,0]:
                     self.layers[from_layer].lb_in[k,0] = lb0[0, k]
-                    chg_count +=1
             for k in range(self.layers[from_layer].ub_in.shape[0]):        
                 if ub0[0, k] < self.layers[from_layer].ub_in[k,0]:
                     self.layers[from_layer].ub_in[k,0] = ub0[0, k]
-                    chg_count +=1
-            #print('Changed ' + str(chg_count) + ' bounds in layer ' + str(from_layer))
         else:
             return lb0, ub0
 
